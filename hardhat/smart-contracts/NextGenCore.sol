@@ -184,8 +184,9 @@ contract NextGenCore is ERC721Enumerable, Ownable, ERC2981 {
         }
     }
 
-    // mint called from minterContract
 
+    // @audit _safeMint ERC721 Compliant ext call, reentrancy vulnerable
+    // @audit _guard to mint to address(this) or minter contract or admin
     function mint(uint256 mintIndex, address _mintingAddress , address _mintTo, string memory _tokenData, uint256 _saltfun_o, uint256 _collectionID, uint256 phase) external {
         require(msg.sender == minterContract, "Caller is not the Minter Contract");
         collectionAdditionalData[_collectionID].collectionCirculationSupply = collectionAdditionalData[_collectionID].collectionCirculationSupply + 1;
@@ -210,6 +211,7 @@ contract NextGenCore is ERC721Enumerable, Ownable, ERC2981 {
 
     // burn to mint called from minterContract
 
+    // @audit reenter to keep minting and burn only last index
     function burnToMint(uint256 mintIndex, uint256 _burnCollectionID, uint256 _tokenId, uint256 _mintCollectionID, uint256 _saltfun_o, address burner) external {
         require(msg.sender == minterContract, "Caller is not the Minter Contract");
         require(_isApprovedOrOwner(burner, _tokenId), "ERC721: caller is not token owner or approved");

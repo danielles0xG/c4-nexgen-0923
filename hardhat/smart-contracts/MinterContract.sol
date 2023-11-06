@@ -193,7 +193,16 @@ contract NextGenMinterContract is Ownable {
 
     // mint function
 
-    function mint(uint256 _collectionID, uint256 _numberOfTokens, uint256 _maxAllowance, string memory _tokenData, address _mintTo, bytes32[] calldata merkleProof, address _delegator, uint256 _saltfun_o) public payable {
+    function mint(
+        uint256 _collectionID, 
+        uint256 _numberOfTokens, 
+        uint256 _maxAllowance, 
+        string memory _tokenData, 
+        address _mintTo, 
+        bytes32[] calldata merkleProof, 
+        address _delegator, 
+        uint256 _saltfun_o) public payable {
+            
         require(setMintingCosts[_collectionID] == true, "Set Minting Costs");
         uint256 col = _collectionID;
         address mintingAddress;
