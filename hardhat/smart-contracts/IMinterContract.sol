@@ -15,5 +15,6 @@ interface IMinterContract {
 
     // retrieve auction status
     function getAuctionStatus(uint256 _tokenId) external view  returns (bool);
+
     
 }

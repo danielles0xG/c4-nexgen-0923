@@ -190,9 +190,12 @@ contract NextGenMinterContract is Ownable {
             }
         }
     }
+    event Log(string,uint);
+    event Log(string,address);
 
-    // mint function
-
+    // @audit reentrant on safe mint
+    // @audit how r u setup merkle root
+    uint counter;
     function mint(
         uint256 _collectionID, 
         uint256 _numberOfTokens, 
@@ -223,6 +226,7 @@ contract NextGenMinterContract is Ownable {
                 mintingAddress = _delegator;
             } else {
                 node = keccak256(abi.encodePacked(msg.sender, _maxAllowance, tokData));
+                emit Log("gencore.retrieveTokensMintedALPerAddress(col, msg.sender): ",gencore.retrieveTokensMintedALPerAddress(col, msg.sender));
                 require(_maxAllowance >= gencore.retrieveTokensMintedALPerAddress(col, msg.sender) + _numberOfTokens, "AL limit");
                 mintingAddress = msg.sender;
             }
@@ -236,16 +240,23 @@ contract NextGenMinterContract is Ownable {
         } else {
             revert("No minting");
         }
+        emit Log("Hitting",++counter);
         uint256 collectionTokenMintIndex;
         collectionTokenMintIndex = gencore.viewTokensIndexMin(col) + gencore.viewCirSupply(col) + _numberOfTokens - 1;
         require(collectionTokenMintIndex <= gencore.viewTokensIndexMax(col), "No supply");
+
+        emit Log("gencore.viewCirSupply(col): ",gencore.viewCirSupply(col));
+
         require(msg.value >= (getPrice(col) * _numberOfTokens), "Wrong ETH");
+
+
         for(uint256 i = 0; i < _numberOfTokens; i++) {
+            emit Log("In Loop i", i);
             uint256 mintIndex = gencore.viewTokensIndexMin(col) + gencore.viewCirSupply(col);
             gencore.mint(mintIndex, mintingAddress, _mintTo, tokData, _saltfun_o, col, phase);
         }
         collectionTotalAmount[col] = collectionTotalAmount[col] + msg.value;
-        // control mechanism for sale option 3
+        // // control mechanism for sale option 3
         if (collectionPhases[col].salesOption == 3) {
             uint timeOfLastMint;
             if (lastMintDate[col] == 0) {
@@ -260,13 +271,14 @@ contract NextGenMinterContract is Ownable {
             require(tDiff>=1 && _numberOfTokens == 1, "1 mint/period");
             lastMintDate[col] = collectionPhases[col].allowlistStartTime + (collectionPhases[col].timePeriod * (gencore.viewCirSupply(col) - 1));
         }
+        emit Log("mint function done",0);
     }
 
     // burn to mint function (does not require contract approval)
 
     function burnToMint(uint256 _burnCollectionID, uint256 _tokenId, uint256 _mintCollectionID, uint256 _saltfun_o) public payable {
         require(burnToMintCollections[_burnCollectionID][_mintCollectionID] == true, "Initialize burn");
-        require(block.timestamp >= collectionPhases[_mintCollectionID].publicStartTime && block.timestamp<=collectionPhases[_mintCollectionID].publicEndTime,"No minting");
+        require(block.timestamp >= collectionPhases[_mintCollectionID].publicStartTime && block.timestamp <= collectionPhases[_mintCollectionID].publicEndTime, "No minting");
         require ((_tokenId >= gencore.viewTokensIndexMin(_burnCollectionID)) && (_tokenId <= gencore.viewTokensIndexMax(_burnCollectionID)), "col/token id error");
         // minting new token
         uint256 collectionTokenMintIndex;
@@ -277,6 +289,8 @@ contract NextGenMinterContract is Ownable {
         // burn and mint token
         address burner = msg.sender;
         gencore.burnToMint(mintIndex, _burnCollectionID, _tokenId, _mintCollectionID, _saltfun_o, burner);
+        
+        // @audit only last msg.value updates for collection balance, inital ones stay on minter contract = rug
         collectionTotalAmount[_mintCollectionID] = collectionTotalAmount[_mintCollectionID] + msg.value;
     }
 
@@ -284,19 +298,27 @@ contract NextGenMinterContract is Ownable {
     
     function mintAndAuction(address _recipient, string memory _tokenData, uint256 _saltfun_o, uint256 _collectionID, uint _auctionEndTime) public FunctionAdminRequired(this.mintAndAuction.selector) {
         require(gencore.retrievewereDataAdded(_collectionID) == true, "Add data");
+
+        // @audit Gas collectionTokenMintIndex use only once
         uint256 collectionTokenMintIndex;
         collectionTokenMintIndex = gencore.viewTokensIndexMin(_collectionID) + gencore.viewCirSupply(_collectionID);
         require(collectionTokenMintIndex <= gencore.viewTokensIndexMax(_collectionID), "No supply");
+
         uint256 mintIndex = gencore.viewTokensIndexMin(_collectionID) + gencore.viewCirSupply(_collectionID);
         gencore.airDropTokens(mintIndex, _recipient, _tokenData, _saltfun_o, _collectionID);
+
         uint timeOfLastMint;
         // check 1 per period
         if (lastMintDate[_collectionID] == 0) {
         // for public sale set the allowlist the same time as publicsale
             timeOfLastMint = collectionPhases[_collectionID].allowlistStartTime - collectionPhases[_collectionID].timePeriod;
         } else {
+            emit Log("here",1);
             timeOfLastMint =  lastMintDate[_collectionID];
         }
+
+        emit Log("lastMintDate[_collectionID]",lastMintDate[_collectionID]);
+        emit Log("timestamp", block.timestamp);
         // uint calculates if period has passed in order to allow minting
         uint tDiff = (block.timestamp - timeOfLastMint) / collectionPhases[_collectionID].timePeriod;
         // users are able to mint after a day passes
@@ -308,7 +330,7 @@ contract NextGenMinterContract is Ownable {
 
     // function to update allowlist mint delegation collection
 
-    function updateDelegationCollection(uint256 _collectionID, address _collectionAddress) public FunctionAdminRequired(this.updateDelegationCollection.selector) { 
+    function updateDelegationCollection(uint256 _collectionID, address _collectionAddress) public FunctionAdminRequired(this.updateDelegationCollection.selector) {
         collectionPhases[_collectionID].delAddress = _collectionAddress;
     }
 
@@ -332,7 +354,15 @@ contract NextGenMinterContract is Ownable {
 
     // burn or swap to mint (requires contract approval)
 
-    function burnOrSwapExternalToMint(address _erc721Collection, uint256 _burnCollectionID, uint256 _tokenId, uint256 _mintCollectionID, string memory _tokenData, bytes32[] calldata merkleProof, uint256 _saltfun_o) public payable {
+    function burnOrSwapExternalToMint(
+        address _erc721Collection,
+        uint256 _burnCollectionID, 
+        uint256 _tokenId, 
+        uint256 _mintCollectionID, 
+        string memory _tokenData, 
+        bytes32[] calldata merkleProof, 
+        uint256 _saltfun_o) public payable {
+
         bytes32 externalCol = keccak256(abi.encodePacked(_erc721Collection,_burnCollectionID));
         require(burnExternalToMintCollections[externalCol][_mintCollectionID] == true, "Initialize external burn");
         require(setMintingCosts[_mintCollectionID] == true, "Set Minting Costs");
@@ -375,6 +405,7 @@ contract NextGenMinterContract is Ownable {
 
     // function to set primary splits
 
+    // @audit critical address zero check
     function setPrimaryAndSecondarySplits(uint256 _collectionID, uint256 _artistPrSplit, uint256 _teamPrSplit, uint256 _artistSecSplit, uint256 _teamSecSplit) public FunctionAdminRequired(this.setPrimaryAndSecondarySplits.selector) {
         require(_artistPrSplit + _teamPrSplit == 100, "splits need to be 100%");
         require(_artistSecSplit + _teamSecSplit == 100, "splits need to be 100%");
@@ -385,7 +416,7 @@ contract NextGenMinterContract is Ownable {
     }
 
     // function to propose primary addresses and percentages for each address
-
+    // @audit critical address zero check
     function proposePrimaryAddressesAndPercentages(uint256 _collectionID, address _primaryAdd1, address _primaryAdd2, address _primaryAdd3, uint256 _add1Percentage, uint256 _add2Percentage, uint256 _add3Percentage) public ArtistOrAdminRequired(_collectionID, this.proposePrimaryAddressesAndPercentages.selector) {
         require (collectionArtistPrimaryAddresses[_collectionID].status == false, "Already approved");
         require (_add1Percentage + _add2Percentage + _add3Percentage == collectionRoyaltiesPrimarySplits[_collectionID].artistPercentage, "Check %");
@@ -399,7 +430,7 @@ contract NextGenMinterContract is Ownable {
     }
 
     // function to propose secondary addresses and percentages for each address
-
+    // @audit critical address zero check
     function proposeSecondaryAddressesAndPercentages(uint256 _collectionID, address _secondaryAdd1, address _secondaryAdd2, address _secondaryAdd3, uint256 _add1Percentage, uint256 _add2Percentage, uint256 _add3Percentage) public ArtistOrAdminRequired(_collectionID, this.proposeSecondaryAddressesAndPercentages.selector) {
         require (collectionArtistSecondaryAddresses[_collectionID].status == false, "Already approved");
         require (_add1Percentage + _add2Percentage + _add3Percentage == collectionRoyaltiesSecondarySplits[_collectionID].artistPercentage, "Check %");
@@ -435,6 +466,8 @@ contract NextGenMinterContract is Ownable {
         uint256 artistRoyalties3;
         uint256 teamRoyalties1;
         uint256 teamRoyalties2;
+        emit Log("royalties",royalties);
+        emit Log(" collectionArtistPrimaryAddresses[colId].add1Percentage", collectionArtistPrimaryAddresses[colId].add1Percentage);
         artistRoyalties1 = royalties * collectionArtistPrimaryAddresses[colId].add1Percentage / 100;
         artistRoyalties2 = royalties * collectionArtistPrimaryAddresses[colId].add2Percentage / 100;
         artistRoyalties3 = royalties * collectionArtistPrimaryAddresses[colId].add3Percentage / 100;
@@ -534,8 +567,8 @@ contract NextGenMinterContract is Ownable {
         return mintToAuctionStatus[_tokenId];
     }
 
-    // get the minting price of collection
 
+    // @audit read only reentrancy for mint price
     function getPrice(uint256 _collectionId) public view returns (uint256) {
         uint tDiff;
         if (collectionPhases[_collectionId].salesOption == 3) {
@@ -546,6 +579,7 @@ contract NextGenMinterContract is Ownable {
             } else {
                 return collectionPhases[_collectionId].collectionMintCost;
             }
+            // @audit wrong time calculation
         } else if (collectionPhases[_collectionId].salesOption == 2 && block.timestamp > collectionPhases[_collectionId].allowlistStartTime && block.timestamp < collectionPhases[_collectionId].publicEndTime){
             // decreases exponentially every time period
             // collectionPhases[_collectionId].timePeriod sets the time period for decreasing the mintcost
@@ -562,6 +596,7 @@ contract NextGenMinterContract is Ownable {
                 if (((collectionPhases[_collectionId].collectionMintCost - collectionPhases[_collectionId].collectionEndMintCost) / (collectionPhases[_collectionId].rate)) > tDiff) {
                     price = collectionPhases[_collectionId].collectionMintCost - (tDiff * collectionPhases[_collectionId].rate);
                 } else {
+
                     price = collectionPhases[_collectionId].collectionEndMintCost;
                 }
             }

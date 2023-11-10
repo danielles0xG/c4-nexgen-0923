@@ -1,5 +1,6 @@
 require("@nomicfoundation/hardhat-toolbox")
 require("hardhat-gas-reporter")
+require("hardhat-tracer");
 
 module.exports = {
   paths: {

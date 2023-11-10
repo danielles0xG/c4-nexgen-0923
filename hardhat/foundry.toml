@@ -1,7 +1,9 @@
 [profile.default]
-src = "src"
+src = "smart-contracts"
 out = "artifacts"
-libs = ["node_modules"]
+libs = ["node_modules", "lib"]
+test = 'test/foundry'
+
 remappings = [
     "eth-gas-reporter/=node_modules/eth-gas-reporter/",
     "hardhat/=node_modules/hardhat/",

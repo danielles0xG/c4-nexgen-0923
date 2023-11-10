@@ -174,8 +174,9 @@ contract NextGenCore is ERC721Enumerable, Ownable, ERC2981 {
     }
 
     // airdrop called from minterContract
-    
-    function airDropTokens(uint256 mintIndex, address _recipient, string memory _tokenData, uint256 _saltfun_o, uint256 _collectionID) external {
+    event Log(string,address);
+    function airDropTokens(uint256 mintIndex, address _recipient, string memory _tokenData, uint256 _saltfun_o, uint256 _collectionID) external /* onlyMinter() */{
+        emit Log("airDropTokens sender", msg.sender);
         require(msg.sender == minterContract, "Caller is not the Minter Contract");
         collectionAdditionalData[_collectionID].collectionCirculationSupply = collectionAdditionalData[_collectionID].collectionCirculationSupply + 1;
         if (collectionAdditionalData[_collectionID].collectionTotalSupply >= collectionAdditionalData[_collectionID].collectionCirculationSupply) {
@@ -211,7 +212,7 @@ contract NextGenCore is ERC721Enumerable, Ownable, ERC2981 {
 
     // burn to mint called from minterContract
 
-    // @audit reenter to keep minting and burn only last index
+    // @audit reenter to keep minting and burn 
     function burnToMint(uint256 mintIndex, uint256 _burnCollectionID, uint256 _tokenId, uint256 _mintCollectionID, uint256 _saltfun_o, address burner) external {
         require(msg.sender == minterContract, "Caller is not the Minter Contract");
         require(_isApprovedOrOwner(burner, _tokenId), "ERC721: caller is not token owner or approved");
